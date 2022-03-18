@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+
+import getpass
+import os
+import pymysql.cursors
+import re
+import sqlite3
+import time
+from hashlib import sha1
+
+############ REQUIREMENTS - ADJUST TO YOUR ENVIRONMENT
+UpperCase=1
+LowerCase=1
+Number=1
+Special=0
+MinLength=1
+MinDays=1
+MaxDays=60
+# 60 X 5 = 300 days; we keep a history for 2 years...
+KeepHistory=720
+############ END REQUIREMENTS
+
+# yum install python36-PyMySQL
+
+homedirectory = os.path.expanduser("~")
+datadirectory = homedirectory + "/.maria_history"
+datafile = homedirectory + "/.maria_history/history.sqlite3"
+
+daytosec = 24 * 60 * 60
+
+if not os.path.exists(datadirectory):
+    os.makedirs(datadirectory)
+
+if not os.path.exists(datafile):
+    with open(datafile, 'w'): pass
+
+historycon = sqlite3.connect(datafile)
+history = historycon.cursor()
+
+history.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='pass_history_1' ''')
+
+user = input("Enter MariaDB Username: ")
+host = input("Enter Host defined in DB: ")
+
+today   = int(time.time())
+expired = int(today - (KeepHistory * daytosec)) 
+minsec  =  MinDays * daytosec
+
+hashlist = []
+timelist = [0]
+
+if history.fetchone()[0]==1:
+    # table exists
+    # clean out old data
+    history.execute("DELETE FROM pass_history_1 WHERE change_time < (?)", (str(expired), )  )
+    for row in history.execute("SELECT hash, change_time FROM pass_history_1 WHERE username = (?)", (user,) ):
+        hashlist.append(row[0])
+        timelist.append(row[1])
+else:
+    # create the table 
+    # in future may need to apply migrations
+    history.execute(''' CREATE TABLE pass_history_1
+        (username TEXT, change_time INTEGER, hash TEXT) ''')
+oldpass  = getpass.getpass("Enter OLD MariaDB Password:   ")
+password = getpass.getpass("Enter NEW MariaDB Password:   ")
+confirm  = getpass.getpass("Confirm NEW NariaDB Password: ")
+timediff = today - max(timelist)
+
+if  timediff < minsec:
+    print("To soon to change password")
+    exit(1)
+
+badpass = False
+
+if password != confirm:
+    print("ERROR: Passwords do not match")
+    badpass = True
+
+if len(password) < MinLength:
+    print("ERROR: Password to short")
+    badpass = True
+
+match = re.findall('[a-z]', password)
+
+if len(match) < LowerCase:
+    print("ERROR: Not enough lower case")
+    badpass = True
+
+match = re.findall('[A-Z]', password)
+
+if len(match) < UpperCase:
+    print("ERROR: Not enough upper case")
+    badpass = True
+
+match = re.findall('[0-9]', password)
+
+if len(match) < Number:
+    print("ERROR: Not enough numbers")
+    badpass = True
+
+match = re.findall('[\W_]', password)
+
+if len(match) < Special:
+    print("ERROR: Not enough special characters")
+    badpass = True
+
+newhash = "*" + sha1(sha1(password.encode('utf-8')).digest()).hexdigest().upper()
+
+# print(hashlist)
+
+if newhash in hashlist:
+    print('ERROR: password has been used before')
+    badpass = True
+
+if badpass:
+    print('Bad Password')
+    history.close()
+    exit(1)
+
+maria = pymysql.connect(host=host, user=user, password=oldpass, database=None, cursorclass=pymysql.cursors.DictCursor)
+
+if maria:
+    print(maria)
+    try:
+        with maria:
+            with maria.cursor() as cursor:
+                sql = "SET PASSWORD FOR %s@%s = PASSWORD(%s)"
+                cursor.execute(sql, (user, host, password))
+    except pymysql.Error as e:
+        print("ERROR: mariadb returned: %s", e)
+        exit(1)    
+    try:
+        history.execute("INSERT INTO pass_history_1 (username, change_time, hash) VALUES (?, ?, ?)", (user, today, newhash, ) )
+        historycon.commit()
+    except sqlite3.IntegrityError:
+        print('ERROR: unable to save history')
+        exit(1)
+    maria.commit()
+    maria.close()
+else:
+     print("Maria connection failed")
+
+historycon.close()
