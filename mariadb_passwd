@@ -12,15 +12,16 @@ from hashlib import sha1
 UpperCase=1
 LowerCase=1
 Number=1
-Special=0
-MinLength=1
+Special=1
+MinLength=12
 MinDays=1
 MaxDays=60
 # 60 X 5 = 300 days; we keep a history for 2 years...
 KeepHistory=720
+MinDiff=8
 ############ END REQUIREMENTS
 
-# yum install python36-PyMySQL
+# yum install python36-mysql
 
 homedirectory = os.path.expanduser("~")
 datadirectory = homedirectory + "/.maria_history"
@@ -62,16 +63,30 @@ else:
     history.execute(''' CREATE TABLE pass_history_1
         (username TEXT, change_time INTEGER, hash TEXT) ''')
 
-oldpass  = getpass.getpass("Enter OLD MariaDB Password:   ")
-password = getpass.getpass("Enter NEW MariaDB Password:   ")
-confirm  = getpass.getpass("Confirm NEW NariaDB Password: ")
 timediff = today - max(timelist)
+
+def diffcount(string1, string2):
+    chars1=list(string1)
+    chars2=list(string2)
+
+    x=0
+    y=0
+
+    for char in chars1:
+        if len(chars2) > x:
+           if char == chars2[y]:
+                y=y+1
+        x=x+1
+    return(len(chars1) - y)
 
 if  timediff < minsec:
     print("To soon to change password")
     exit(1)
 
 badpass = False
+oldpass  = getpass.getpass("Enter OLD MariaDB Password: ")
+password = getpass.getpass("Enter NEW MariaDB Password: ")
+confirm  = getpass.getpass("Confirm NEW NariaDB Password: ")
 
 if password != confirm:
     print("ERROR: Passwords do not match")
@@ -81,12 +96,16 @@ if len(password) < MinLength:
     print("ERROR: Password to short")
     badpass = True
 
-match = re.findall('[a-z]', password)
+if diffcount(password, oldpass) < MinDiff:
+    print("ERROR: Password to simular")
+    badpass = True
 
+match = re.findall('[a-z]', password)
 if len(match) < LowerCase:
     print("ERROR: Not enough lower case")
     badpass = True
 
+if diffcount(password, oldpass) < 
 match = re.findall('[A-Z]', password)
 
 if len(match) < UpperCase:
@@ -94,13 +113,11 @@ if len(match) < UpperCase:
     badpass = True
 
 match = re.findall('[0-9]', password)
-
 if len(match) < Number:
     print("ERROR: Not enough numbers")
     badpass = True
 
 match = re.findall('[\W_]', password)
-
 if len(match) < Special:
     print("ERROR: Not enough special characters")
     badpass = True
@@ -142,3 +159,5 @@ else:
      print("Maria connection failed")
 
 historycon.close()
+
+
