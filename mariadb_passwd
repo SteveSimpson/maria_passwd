@@ -61,6 +61,7 @@ else:
     # in future may need to apply migrations
     history.execute(''' CREATE TABLE pass_history_1
         (username TEXT, change_time INTEGER, hash TEXT) ''')
+
 oldpass  = getpass.getpass("Enter OLD MariaDB Password:   ")
 password = getpass.getpass("Enter NEW MariaDB Password:   ")
 confirm  = getpass.getpass("Confirm NEW NariaDB Password: ")
